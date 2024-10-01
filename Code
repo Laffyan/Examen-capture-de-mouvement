@@ -1,0 +1,202 @@
+# Partie 1 : Exercice 1 :
+
+import cv2
+import numpy as np
+# Lire l'image
+img = cv2.imread('path_to_your_image.jpg')
+# Afficher image
+cv2.imshow('Image', img)
+cv2.waitKey(0)
+
+#Filtre de Sobel :
+# Charger l'image en niveau de gris
+gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+# Appliquer le filtre Sobel dans la direction x
+sobel_x = cv2.Sobel(gray_img, cv2.CV_64F, 1, 0, ksize=3)
+# Appliquer le filtre Sobel dans la direction y
+sobel_y = cv2.Sobel(gray_img, cv2.CV_64F, 0, 1, ksize=3)
+# Calculer la magnitude du gradient
+sobel_combined = cv2.magnitude(sobel_x, sobel_y)
+# Convertir pour affichage avec OpenCV
+sobel_x = cv2.convertScaleAbs(sobel_x)
+sobel_y = cv2.convertScaleAbs(sobel_y)
+sobel_combined = cv2.convertScaleAbs(sobel_combined)
+# Afficher l'image
+cv2.imshow('Sobel Magnitude', sobel_combined)
+cv2.waitKey(0)
+
+# Transformation de Fourier :
+# Appliquer une transformation de Fourier (DFT)
+dft = cv2.dft(np.float32(gray_img), flags=cv2.DFT_COMPLEX_OUTPUT)
+# Centrer le spectre de Fourier pour voir les basses fréquences au centre
+dft_shift = np.fft.fftshift(dft)
+# Calculer la magnitude du spectre
+magnitude_spectrum = cv2.magnitude(dft_shift[:, :, 0], dft_shift[:, :, 1])
+# Appliquer une transformation logarithmique pour mieux visualiser
+magnitude_spectrum = np.log(magnitude_spectrum + 1)
+# Normaliser le spectre pour l'affichage avec OpenCV
+magnitude_spectrum = cv2.normalize(magnitude_spectrum, None, 0, 255, cv2.NORM_MINMAX)
+magnitude_spectrum = np.uint8(magnitude_spectrum)
+# Afficher l'image
+cv2.imshow('Spectre de Fourier', magnitude_spectrum)
+cv2.waitKey(0)
+
+# Segmentation par seuillage adaptatif :
+# Appliquer un flou gaussien pour réduire le bruit
+image_blur = cv2.GaussianBlur(image, (5, 5), 0)
+# Appliquer le seuillage adaptatif
+thresh_adaptive = cv2.adaptiveThreshold(image_blur,255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C,cv2.THRESH_BINARY,11,2)
+# Afficher l'image
+cv2.imshow('Seuillage Adaptatif', thresh_adaptive)
+cv2.waitKey(0)
+
+# Fermer les fenêtres
+cv2.destroyAllWindows()
+
+
+# Exercice 2 :
+# Sélectionner la région d'intérêt
+roi = cv2.selectROI('Sélectionnez la ROI', img)
+# Extraire les coordonnées de la ROI
+x, y, w, h = roi
+# Découper la région d'intérêt (ROI)
+roi_cropped = img[int(y):int(y+h), int(x):int(x+w)]
+# Appliquer un masque dans la ROI (ici Inverser les couleurs)
+roi_inverted = cv2.bitwise_not(roi_cropped)
+# Appliquer un flou gaussien sur toute l'image
+image_blurred = cv2.GaussianBlur(img, (21, 21), 0)
+# Remettre la ROI (non floutée) dans l'image floutée
+image_blurred[int(y):int(y+h), int(x):int(x+w)] = roi_inverted
+# Dessiner un rectangle autour de la ROI sélectionnée (en rouge par exemple)
+cv2.rectangle(image_blurred, (int(x), int(y)), (int(x+w), int(y+h)), (0, 0, 255), 2)
+# Afficher l'image
+cv2.imshow('Image avec ROI inversée et flou extérieur', image_blurred)
+cv2.waitKey(0)
+
+
+# Partie 2 : Exercice 3 :
+
+# Assurez-vous d'installer les bibliothèques nécessaires :
+pip install opencv-python opencv-python-headless numpy keras tensorflow
+
+import cv2
+import numpy as np
+from keras.models import load_model
+
+# Charger le modèle Caffe pré-entraîné pour la détection des visages
+modelFile = "res10_300x300_ssd_iter_140000.caffemodel"
+configFile = "deploy.prototxt"
+net = cv2.dnn.readNetFromCaffe(configFile, modelFile)
+
+# Charger les modèles de genre et d'âge
+gender_model = load_model('gender_model.h5')  # Modèle de genre
+age_model = load_model('age_model.h5')        # Modèle d'estimation d'âge
+
+# Étiquettes pour le genre
+gender_labels = ['Homme', 'Femme']
+
+# Initialiser la capture vidéo (0 pour la webcam)
+cap = cv2.VideoCapture(0)
+
+while True:
+    # Lire une frame de la vidéo
+    ret, frame = cap.read()
+    if not ret:
+        break
+    
+    # Obtenir les dimensions de la frame
+    (h, w) = frame.shape[:2]
+
+    # Prétraiter l'image pour la détection de visages
+    blob = cv2.dnn.blobFromImage(frame, 1.0, (300, 300), (104.0, 177.0, 123.0))
+    net.setInput(blob)
+    detections = net.forward()
+
+    # Parcourir les détections
+    for i in range(0, detections.shape[2]):
+        confidence = detections[0, 0, i, 2]
+
+        if confidence > 0.5:
+            # Calculer les coordonnées du rectangle englobant
+            box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
+            (startX, startY, endX, endY) = box.astype("int")
+
+            # Extraire la ROI pour le genre et l'âge
+            face = frame[startY:endY, startX:endX]
+            face_resized = cv2.resize(face, (64, 64))  # Taille adaptée au modèle
+
+            # Prédire le genre
+            gender_blob = np.expand_dims(face_resized, axis=0) / 255.0
+            gender_pred = gender_model.predict(gender_blob)
+            gender = gender_labels[np.argmax(gender_pred)]
+
+            # Prédire l'âge
+            age_blob = np.expand_dims(face_resized, axis=0) / 255.0
+            age_pred = age_model.predict(age_blob)
+            age = int(age_pred[0][0])  # Ajustez cela selon votre modèle
+
+            # Dessiner un rectangle autour du visage
+            cv2.rectangle(frame, (startX, startY), (endX, endY), (0, 255, 0), 2)
+
+            # Ajouter le texte pour le genre et l'âge
+            text = f"{gender}, {age} ans"
+            cv2.putText(frame, text, (startX, startY - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+    # Afficher la frame avec les visages détectés et les informations
+    cv2.imshow('Détection de visages avec genre et âge', frame)
+
+    # Sortir de la boucle si l'utilisateur appuie sur 'q'
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+# Libérer la capture vidéo et fermer les fenêtres
+cap.release()
+cv2.destroyAllWindows()
+
+
+#Exercice 4 :
+
+# Assurez-vous d'installer les bibliothèques nécessaires :
+pip install opencv-python opencv-contrib-python
+
+import cv2
+
+# Initialiser la capture vidéo
+cap = cv2.VideoCapture(0)  # 0 pour la webcam
+
+# Lire la première image
+ret, frame = cap.read()
+
+# L'utilisateur sélectionne manuellement l'objet à suivre
+bbox = cv2.selectROI("Sélectionner l'objet à suivre", frame, fromCenter=False, showCrosshair=True)
+
+# Initialiser le tracker
+tracker = cv2.TrackerCSRT_create()  # Utilisation de l'algorithme CSRT
+tracker.init(frame, bbox)
+
+# Boucle principale pour le suivi
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    # Mettre à jour le tracker
+    success, bbox = tracker.update(frame)
+
+    # Dessiner le rectangle autour de l'objet suivi
+    if success:
+        (x, y, w, h) = [int(v) for v in bbox]
+        cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 2, 1)
+    else:
+        cv2.putText(frame, "Objet perdu", (100, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+
+    # Afficher le résultat
+    cv2.imshow("Suivi d'objet", frame)
+
+    # Quitter avec la touche 'q'
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+# Libérer les ressources
+cap.release()
+cv2.destroyAllWindows()
